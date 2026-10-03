@@ -4,6 +4,7 @@ import { HeaderBar } from './components/HeaderBar'
 import { CalibrationPad } from './components/CalibrationPad'
 import { LivePreviewCard } from './components/LivePreviewCard'
 import { MediaSourceCard } from './components/MediaSourceCard'
+import { BackendSyncCard } from './components/BackendSyncCard'
 import { LayoutSettingsCard } from './components/LayoutSettingsCard'
 import { MarqueeSettingsCard } from './components/MarqueeSettingsCard'
 import { DisplaySettingsCard } from './components/DisplaySettingsCard'
@@ -73,6 +74,7 @@ export const ControlDashboard: React.FC = () => {
 
         <div className="control-grid">
           <div className="grid-column">
+            <BackendSyncCard />
             <MediaSourceCard />
             <LayoutSettingsCard />
           </div>

@@ -165,27 +165,30 @@ export const MarqueeTrack: React.FC<MarqueeTrackProps> = ({
 
   // When videos list changes (e.g. video added or removed live)
   useEffect(() => {
-    if (videos.length === 0) return
+    if (videos.length === 0) {
+      tilesRef.current = []
+      return
+    }
 
     const tiles = tilesRef.current
-    const currentOffset = trackOffsetRef.current
-    const visibleWidth = marqueeRectRef.current.width
 
-    // Check tiles outside the visible area on the right edge
-    // Any tile currently off-screen to the right can be updated to newly added videos
+    // For any tile whose video was deleted from disk, replace it with the next valid video
+    // without changing any tile's x coordinate or DOM transform (no moving other visible tiles).
     tiles.forEach((tile) => {
-      const screenX = tile.x + currentOffset
-      // If offscreen to the right, verify its video is valid or update
-      if (screenX > visibleWidth) {
-        const isValid = videos.some((v) => v.url === tile.videoUrl)
-        if (!isValid) {
-          const nextVideo = videos[playlistIndexRef.current % videos.length]
-          playlistIndexRef.current++
-          tile.videoUrl = nextVideo.url
-          tile.videoFileName = nextVideo.fileName
-          if (tile.videoEl && tile.videoEl.src !== nextVideo.url) {
-            tile.videoEl.src = nextVideo.url
-            tile.videoEl.load()
+      const isVideoStillValid = videos.some((v) => v.url === tile.videoUrl)
+      if (!isVideoStillValid) {
+        const nextVideo = videos[playlistIndexRef.current % videos.length]
+        playlistIndexRef.current++
+        tile.videoUrl = nextVideo.url
+        tile.videoFileName = nextVideo.fileName
+        if (tile.videoEl) {
+          tile.videoEl.src = nextVideo.url
+          tile.videoEl.load()
+          if (tile.isPlaying) {
+            const playPromise = tile.videoEl.play()
+            if (playPromise && typeof playPromise.catch === 'function') {
+              playPromise.catch(() => {})
+            }
           }
         }
       }

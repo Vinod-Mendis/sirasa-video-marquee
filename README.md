@@ -57,7 +57,17 @@ The application operates with a dual-window model and a decoupled backend-ready 
 - **2-Second Size Stabilization**: Ignores partially copied or downloading files until size has remained steady for ~2 seconds.
 - Serves videos safely via a custom `media://` scheme registered with standard streaming privileges, enabling byte ranges and bypassing strict file URL limitations with `autoplayPolicy: 'no-user-gesture-required'`.
 
-### 4. Calibration Mode
+### 4. Backend Video Sync (Decoupled Worker)
+
+- **Completely Decoupled**: Runs in the background in the Electron Main process without ever blocking the UI or touching the marquee ticker code. Writes completed, verified MP4 files directly into the watched videos folder where the existing watcher (`LocalFolderSource`) detects them.
+- **Configurable API Sources**: Polls configured endpoints (e.g. `api/drawings`, `api/quick-drawings`) returning JSON arrays of `{ _id, imageUrl, uploadedAt, videoGeneratedAt?, videoUrl? }`. Ignores records without `videoUrl` until ready on subsequent polls.
+- **Render Server Wake-Up Handling**: Render cold-starts can take up to a minute; includes a 75s initial request timeout with exponential retry backoff.
+- **Download Pipeline & Size Verification**: Downloads to a dedicated `sync_temp` folder outside the watched directory. Verifies HTTP status, non-zero bytes, and matches with `content-length`. Atomically renames into the videos folder as `${sourceName}_${_id}.mp4` (cross-drive compatible on Windows).
+- **Concurrency & Resilient Retries**: Capped at 2–3 concurrent downloads. Retries failures up to 5 times with exponential backoff before marking as abandoned until the next app start. If network drops, local marquee continues playback uninterrupted.
+- **Persistent Manifest**: Stored in `userData/sync-manifest.json` tracking downloaded keys (`${sourceName}:${_id}`) and failure counts across sessions.
+- **Privacy-Safe File Logging**: Logs to `userData/sync.log` with auto-rotation (capped at 5MB). Strictly omits `imageUrl` and attendee names from logs.
+
+### 5. Calibration Mode
 
 - Toggleable calibration HUD overlay.
 - Visual glowing boundary guides and real-time numeric badge ($X, Y, W, H$).
@@ -136,4 +146,5 @@ npm run build:win
 4. **Choose Target Screen**:
    - Under _Target Display & Kiosk_, select which monitor should display the wall.
    - Click **Borderless Fullscreen** to lock the display in kiosk mode with cursor hidden and system sleep blocked.
+
 # sirasa-video-marquee

@@ -1,13 +1,15 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, shell } from 'electron'
 import { SettingsManager } from '../config/settingsManager'
 import { WindowManager } from '../windows/windowManager'
 import { IVideoSource } from '../source/IVideoSource'
+import { BackendSyncService } from '../sync/BackendSyncService'
 import { AppSettings, NudgePayload } from '@shared/types'
 
 export function registerIpcHandlers(
   settingsManager: SettingsManager,
   windowManager: WindowManager,
   videoSource: IVideoSource,
+  backendSyncService: BackendSyncService,
   preloadPath: string
 ): void {
   // Settings
@@ -29,12 +31,18 @@ export function registerIpcHandlers(
       await videoSource.setFolder(partial.videosFolder)
     }
 
+    // Check if sync settings or folder changed
+    if (partial.sync !== undefined || partial.videosFolder !== undefined) {
+      backendSyncService.updateSettings(newSettings.sync, newSettings.videosFolder)
+    }
+
     windowManager.broadcast('settings-updated', newSettings)
     return newSettings
   })
 
   ipcMain.handle('reset-settings', () => {
     const defaultSettings = settingsManager.resetSettings()
+    backendSyncService.updateSettings(defaultSettings.sync, defaultSettings.videosFolder)
     windowManager.broadcast('settings-updated', defaultSettings)
     return defaultSettings
   })
@@ -113,8 +121,48 @@ export function registerIpcHandlers(
     windowManager.createWallWindow(preloadPath, current)
   })
 
+  // Backend Sync
+  ipcMain.handle('get-sync-status', () => {
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('start-sync', async () => {
+    await backendSyncService.startSync()
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('stop-sync', () => {
+    backendSyncService.stopSync()
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('fetch-now', async () => {
+    await backendSyncService.fetchNow()
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('trigger-sync-now', async () => {
+    await backendSyncService.fetchNow()
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('reset-sync-history', () => {
+    backendSyncService.resetSyncHistory()
+    return backendSyncService.getStatus()
+  })
+
+  ipcMain.handle('open-sync-log', async () => {
+    const logPath = backendSyncService.getLogger().getLogFilePath()
+    await shell.openPath(logPath)
+  })
+
   // Video source events forward to windows
   videoSource.on('change', (videos) => {
     windowManager.broadcast('videos-updated', videos)
+  })
+
+  // Backend sync status events forward to windows
+  backendSyncService.on('status', (status) => {
+    windowManager.broadcast('sync-status-updated', status)
   })
 }

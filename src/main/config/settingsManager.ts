@@ -31,6 +31,11 @@ export class SettingsManager {
           marqueeRect: {
             ...DEFAULT_SETTINGS.marqueeRect,
             ...(parsed.marqueeRect || {})
+          },
+          sync: {
+            ...DEFAULT_SETTINGS.sync,
+            ...(parsed.sync || {}),
+            sources: parsed.sync?.sources || DEFAULT_SETTINGS.sync.sources
           }
         }
       }
@@ -55,6 +60,10 @@ export class SettingsManager {
       marqueeRect: {
         ...this.currentSettings.marqueeRect,
         ...(partial.marqueeRect || {})
+      },
+      sync: {
+        ...this.currentSettings.sync,
+        ...(partial.sync || {})
       }
     }
 

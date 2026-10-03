@@ -5,6 +5,7 @@ import { registerMediaScheme, setupMediaProtocol } from './protocol'
 import { SettingsManager } from './config/settingsManager'
 import { WindowManager } from './windows/windowManager'
 import { LocalFolderSource } from './source/LocalFolderSource'
+import { BackendSyncService } from './sync/BackendSyncService'
 import { registerIpcHandlers } from './ipc/registerIpc'
 
 // 1. Register custom media scheme before app is ready
@@ -16,6 +17,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 let settingsManager: SettingsManager
 let windowManager: WindowManager
 let videoSource: LocalFolderSource
+let backendSyncService: BackendSyncService
 
 app.whenReady().then(async () => {
   // Set app user model id for Windows
@@ -30,14 +32,18 @@ app.whenReady().then(async () => {
 
   const initialSettings = settingsManager.getSettings()
   videoSource = new LocalFolderSource(initialSettings.videosFolder)
+  backendSyncService = new BackendSyncService(initialSettings.sync, initialSettings.videosFolder)
 
   const preloadPath = join(__dirname, '../preload/index.js')
 
   // Register IPC
-  registerIpcHandlers(settingsManager, windowManager, videoSource, preloadPath)
+  registerIpcHandlers(settingsManager, windowManager, videoSource, backendSyncService, preloadPath)
 
   // Start Video Source Watcher
   await videoSource.start()
+
+  // Initialize Backend Sync Service (remains idle on launch unless autoStartOnLaunch is enabled)
+  backendSyncService.init()
 
   // Create Windows
   // Default windowed in dev mode if settings say windowed, or fullscreen for production wall
@@ -58,6 +64,9 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', async () => {
+  if (backendSyncService) {
+    backendSyncService.stop()
+  }
   if (videoSource) {
     await videoSource.stop()
   }

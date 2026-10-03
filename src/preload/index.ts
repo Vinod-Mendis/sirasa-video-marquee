@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { AppSettings, DisplayInfo, VideoItem, NudgePayload } from '@shared/types'
+import { AppSettings, DisplayInfo, VideoItem, NudgePayload, BackendSyncStatus } from '@shared/types'
 
 export interface MarqueeAPI {
   getSettings: () => Promise<AppSettings>
@@ -15,6 +15,14 @@ export interface MarqueeAPI {
   reopenWallWindow: () => Promise<void>
   onSettingsUpdated: (callback: (settings: AppSettings) => void) => () => void
   onVideosUpdated: (callback: (videos: VideoItem[]) => void) => () => void
+  getSyncStatus: () => Promise<BackendSyncStatus>
+  startSync: () => Promise<BackendSyncStatus>
+  stopSync: () => Promise<BackendSyncStatus>
+  fetchNow: () => Promise<BackendSyncStatus>
+  triggerSyncNow: () => Promise<BackendSyncStatus>
+  resetSyncHistory: () => Promise<BackendSyncStatus>
+  openSyncLog: () => Promise<void>
+  onSyncStatusUpdated: (callback: (status: BackendSyncStatus) => void) => () => void
 }
 
 const api: MarqueeAPI = {
@@ -41,6 +49,21 @@ const api: MarqueeAPI = {
     ipcRenderer.on('videos-updated', handler)
     return () => {
       ipcRenderer.removeListener('videos-updated', handler)
+    }
+  },
+  getSyncStatus: () => ipcRenderer.invoke('get-sync-status'),
+  startSync: () => ipcRenderer.invoke('start-sync'),
+  stopSync: () => ipcRenderer.invoke('stop-sync'),
+  fetchNow: () => ipcRenderer.invoke('fetch-now'),
+  triggerSyncNow: () => ipcRenderer.invoke('trigger-sync-now'),
+  resetSyncHistory: () => ipcRenderer.invoke('reset-sync-history'),
+  openSyncLog: () => ipcRenderer.invoke('open-sync-log'),
+  onSyncStatusUpdated: (callback) => {
+    const handler = (_: Electron.IpcRendererEvent, status: BackendSyncStatus): void =>
+      callback(status)
+    ipcRenderer.on('sync-status-updated', handler)
+    return () => {
+      ipcRenderer.removeListener('sync-status-updated', handler)
     }
   }
 }

@@ -162,12 +162,24 @@ export class LocalFolderSource extends EventEmitter implements IVideoSource {
   }
 
   private handleFileRemoved(filePath: string): void {
-    const id = path.resolve(filePath)
-    if (this.videosMap.has(id)) {
-      this.videosMap.delete(id)
-      console.log(`[LocalFolderSource] Video removed: ${path.basename(filePath)}`)
-      this.emit('remove', id)
+    const targetNorm = path.resolve(filePath).toLowerCase()
+    let foundId: string | null = null
+
+    for (const id of this.videosMap.keys()) {
+      if (path.resolve(id).toLowerCase() === targetNorm) {
+        foundId = id
+        break
+      }
+    }
+
+    if (foundId) {
+      const item = this.videosMap.get(foundId)
+      this.videosMap.delete(foundId)
+      console.log(`[LocalFolderSource] Video removed: ${item?.fileName || path.basename(filePath)}`)
+      this.emit('remove', foundId)
       this.emitChange()
+    } else {
+      console.warn(`[LocalFolderSource] Unlink event for untracked file: ${filePath}`)
     }
   }
 

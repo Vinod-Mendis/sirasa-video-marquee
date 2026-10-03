@@ -10,6 +10,45 @@ export interface MarqueeRectConfig {
   height: number // default 240
 }
 
+export interface BackendSyncSource {
+  id: string
+  name: string
+  url: string
+  enabled: boolean
+}
+
+export interface BackendSyncSettings {
+  autoStartOnLaunch: boolean // default false (Start sync automatically on launch)
+  pollIntervalSec: number // default 10
+  sources: BackendSyncSource[]
+}
+
+export type BackendSyncState = 'idle' | 'fetching' | 'downloading' | 'waiting' | 'error'
+
+export interface BackendSyncStatus {
+  state: BackendSyncState
+  isRunning: boolean
+  secondsUntilNextFetch: number
+  pollIntervalSec: number
+  nextPollProgress: number // 0.0 to 1.0 (fills up as poll interval elapses)
+  lastSuccessfulFetchTime: string | null
+  activeDownloads: number
+  queuedDownloads: number
+  batchCompleted: number
+  batchTotal: number
+  downloadedCount: number
+  failedCount: number
+  lastError: string | null
+  sourcesStatus: Record<
+    string,
+    {
+      lastPolled: string | null
+      itemCount: number
+      error: string | null
+    }
+  >
+}
+
 export interface AppSettings {
   videosFolder: string
   backgroundImagePath: string
@@ -24,6 +63,7 @@ export interface AppSettings {
   displayId: number | null // null = primary display
   calibrationMode: boolean // default false
   wallWindowMode: 'fullscreen' | 'windowed' // windowed for easy single-display dev/preview
+  sync: BackendSyncSettings
 }
 
 export interface VideoItem {
@@ -55,6 +95,27 @@ export interface NudgePayload {
   dh?: number
 }
 
+export const DEFAULT_SYNC_SOURCES: BackendSyncSource[] = [
+  {
+    id: 'drawings',
+    name: 'drawings',
+    url: 'https://sirasa-mongodb-server.onrender.com/api/drawings',
+    enabled: true
+  },
+  {
+    id: 'quick-drawings',
+    name: 'quick-drawings',
+    url: 'https://sirasa-mongodb-server.onrender.com/api/quick-drawings',
+    enabled: true
+  }
+]
+
+export const DEFAULT_SYNC_SETTINGS: BackendSyncSettings = {
+  autoStartOnLaunch: false,
+  pollIntervalSec: 10,
+  sources: DEFAULT_SYNC_SOURCES
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   videosFolder: '',
   backgroundImagePath: '',
@@ -76,5 +137,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxPlayingVideos: 8,
   displayId: null,
   calibrationMode: false,
-  wallWindowMode: 'fullscreen'
+  wallWindowMode: 'fullscreen',
+  sync: DEFAULT_SYNC_SETTINGS
 }
