@@ -6,6 +6,7 @@ export interface ManifestDownloadedItem {
   key: string // ${sourceName}:${_id}
   sourceName: string
   id: string
+  videoUrl?: string
   fileName: string
   size: number
   downloadedAt: string
@@ -146,10 +147,20 @@ export class SyncManifest {
     this.flushToDisk()
   }
 
+  public getDownloadedByVideoUrl(videoUrl: string): ManifestDownloadedItem | undefined {
+    if (!videoUrl) return undefined
+    return Object.values(this.data.downloaded).find((item) => item.videoUrl === videoUrl)
+  }
+
+  public hasVideoUrlDownloaded(videoUrl: string): boolean {
+    return Boolean(this.getDownloadedByVideoUrl(videoUrl))
+  }
+
   public markDownloaded(
     key: string,
     sourceName: string,
     id: string,
+    videoUrl: string,
     fileName: string,
     size: number
   ): void {
@@ -158,6 +169,7 @@ export class SyncManifest {
       key,
       sourceName,
       id,
+      videoUrl,
       fileName,
       size,
       downloadedAt: new Date().toISOString()

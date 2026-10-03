@@ -8,6 +8,65 @@ import { filePathToMediaUrl } from '../protocol'
 
 const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.m4v'])
 
+export function getSourceFromFileName(fileName: string): string {
+  const match = fileName.match(/^([a-zA-Z0-9_-]+?)_[0-9a-fA-F]{10,}/)
+  if (match) {
+    return match[1]
+  }
+  const idx = fileName.indexOf('_')
+  return idx > 0 ? fileName.slice(0, idx) : 'default'
+}
+
+export function interleaveVideosBySource(videos: VideoItem[]): VideoItem[] {
+  if (videos.length <= 1) return [...videos]
+
+  // Group by source name
+  const sourceGroups = new Map<string, VideoItem[]>()
+  for (const v of videos) {
+    const src = getSourceFromFileName(v.fileName)
+    let group = sourceGroups.get(src)
+    if (!group) {
+      group = []
+      sourceGroups.set(src, group)
+    }
+    group.push(v)
+  }
+
+  if (sourceGroups.size <= 1) {
+    return [...videos].sort((a, b) =>
+      a.fileName.localeCompare(b.fileName, undefined, { numeric: true })
+    )
+  }
+
+  // Sort each group (newest first by mtimeMs, then numeric filename)
+  for (const group of sourceGroups.values()) {
+    group.sort(
+      (a, b) =>
+        b.mtimeMs - a.mtimeMs || a.fileName.localeCompare(b.fileName, undefined, { numeric: true })
+    )
+  }
+
+  // Interleave sources round-robin
+  const queues = Array.from(sourceGroups.values()).map((g) => [...g])
+  const result: VideoItem[] = []
+  let queueIdx = 0
+
+  while (result.length < videos.length) {
+    let checked = 0
+    while (checked < queues.length) {
+      const q = queues[queueIdx % queues.length]
+      queueIdx++
+      checked++
+      if (q.length > 0) {
+        result.push(q.shift()!)
+        break
+      }
+    }
+  }
+
+  return result
+}
+
 export class LocalFolderSource extends EventEmitter implements IVideoSource {
   private folderPath: string
   private watcher: FSWatcher | null = null
@@ -51,9 +110,7 @@ export class LocalFolderSource extends EventEmitter implements IVideoSource {
   }
 
   public getVideos(): VideoItem[] {
-    return Array.from(this.videosMap.values()).sort((a, b) =>
-      a.fileName.localeCompare(b.fileName, undefined, { numeric: true })
-    )
+    return interleaveVideosBySource(Array.from(this.videosMap.values()))
   }
 
   private isSupportedFile(filePath: string): boolean {

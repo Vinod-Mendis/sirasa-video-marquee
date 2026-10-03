@@ -339,8 +339,12 @@ export class BackendSyncService extends EventEmitter {
     let anyError = false
     let lastErrMsg: string | null = null
     let newlyFoundCount = 0
+    const tasksBySource: Map<string, DownloadTask[]> = new Map()
 
     for (const source of enabledSources) {
+      const sourceTasks: DownloadTask[] = []
+      tasksBySource.set(source.id, sourceTasks)
+
       try {
         const items = await this.fetchSourceRecords(source.url, timeoutMs)
         this.status.sourcesStatus[source.id] = {
@@ -361,40 +365,41 @@ export class BackendSyncService extends EventEmitter {
             continue
           }
 
-          const targetFileName = `${source.name}_${record._id}.mp4`
-          const targetPath = path.join(this.videosFolder, targetFileName)
-
-          let fileExistsOnDisk = false
-          try {
-            if (fs.existsSync(targetPath)) {
-              const stat = fs.statSync(targetPath)
-              if (stat.isFile() && stat.size > 0) {
-                fileExistsOnDisk = true
+          // Requirement 3: Only skip a record if its videoUrl was already downloaded
+          const downloadedItem = this.manifest.getDownloadedByVideoUrl(record.videoUrl)
+          if (downloadedItem) {
+            const downloadedPath = path.join(this.videosFolder, downloadedItem.fileName)
+            let fileExistsOnDisk = false
+            try {
+              if (fs.existsSync(downloadedPath)) {
+                const stat = fs.statSync(downloadedPath)
+                if (stat.isFile() && stat.size > 0) {
+                  fileExistsOnDisk = true
+                }
               }
+            } catch {
+              fileExistsOnDisk = false
             }
-          } catch {
-            fileExistsOnDisk = false
-          }
 
-          if (this.manifest.hasDownloaded(key)) {
             if (fileExistsOnDisk) {
+              // Only skip a record if its videoUrl was already downloaded (and verified on disk)
               continue
+            } else {
+              // File is missing or 0 bytes on disk: remove stale manifest entry and re-download
+              this.manifest.removeDownloaded(downloadedItem.key)
+              this.logger.info(
+                `[${source.name}] File missing on disk for videoUrl, will re-download`
+              )
             }
-            // File is missing or 0 bytes on disk: remove stale manifest entry and re-download
-            this.manifest.removeDownloaded(key)
-            this.logger.info(
-              `[${source.name}] File missing on disk for record ${record._id}, will re-download`
-            )
           }
 
           if (this.manifest.canAttempt(key)) {
-            this.enqueueDownload({
+            sourceTasks.push({
               key,
               sourceName: source.name,
               id: record._id,
               videoUrl: record.videoUrl
             })
-            newlyFoundCount++
           }
         }
       } catch (err: unknown) {
@@ -408,6 +413,23 @@ export class BackendSyncService extends EventEmitter {
         }
         this.logger.warn(`Source poll failed for ${source.name}: ${msg}`)
       }
+    }
+
+    // Requirement 2: Interleave downloads from sources instead of grouping by source
+    const taskQueues = Array.from(tasksBySource.values())
+    let hasMoreTasks = true
+    let taskIdx = 0
+
+    while (hasMoreTasks) {
+      hasMoreTasks = false
+      for (const q of taskQueues) {
+        if (taskIdx < q.length) {
+          this.enqueueDownload(q[taskIdx])
+          newlyFoundCount++
+          hasMoreTasks = true
+        }
+      }
+      taskIdx++
     }
 
     if (newlyFoundCount > 0) {
@@ -593,7 +615,7 @@ export class BackendSyncService extends EventEmitter {
         }
       }
 
-      this.manifest.markDownloaded(key, sourceName, id, targetFileName, bytesWritten)
+      this.manifest.markDownloaded(key, sourceName, id, videoUrl, targetFileName, bytesWritten)
 
       this.logger.info(
         `[${sourceName}] Record ${id} saved as ${targetFileName} (${(bytesWritten / (1024 * 1024)).toFixed(2)} MB)`

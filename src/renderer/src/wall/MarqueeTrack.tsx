@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react'
 import { MarqueeRectConfig, VideoItem } from '@shared/types'
+import { VideoSequenceManager } from './videoSequenceManager'
 
 interface MarqueeTrackProps {
   videos: VideoItem[]
@@ -79,10 +80,24 @@ export const MarqueeTrack: React.FC<MarqueeTrackProps> = ({
     return newSlots
   }, [neededSlotsCount])
 
+  const visibleCount = useMemo(() => {
+    return Math.ceil(marqueeRect.width / Math.max(slotWidth, 50))
+  }, [marqueeRect.width, slotWidth])
+
+  // Stable sequence manager reference
+  const sequenceManagerRef = useRef<VideoSequenceManager | null>(null)
+  if (sequenceManagerRef.current == null) {
+    sequenceManagerRef.current = new VideoSequenceManager(videos, visibleCount)
+  }
+
+  // Keep visible count in sync
+  useEffect(() => {
+    sequenceManagerRef.current?.setVisibleCount(visibleCount)
+  }, [visibleCount])
+
   // Mutable tile data pool accessed by rAF
   const tilesRef = useRef<TileData[]>([])
   const trackOffsetRef = useRef<number>(0)
-  const playlistIndexRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
   const rafIdRef = useRef<number | null>(null)
 
@@ -95,14 +110,14 @@ export const MarqueeTrack: React.FC<MarqueeTrackProps> = ({
 
     const currentTiles = tilesRef.current
     const newTiles: TileData[] = []
+    const seq = sequenceManagerRef.current
 
     slotDescriptors.forEach((slotId, index) => {
       const existing = currentTiles.find((t) => t.slotId === slotId)
       if (existing) {
         newTiles.push(existing)
       } else {
-        const video = videos[playlistIndexRef.current % videos.length]
-        playlistIndexRef.current++
+        const video = seq?.getNextVideo() || videos[0]
         newTiles.push({
           slotId,
           x: index * slotWidth,
@@ -170,29 +185,60 @@ export const MarqueeTrack: React.FC<MarqueeTrackProps> = ({
       return
     }
 
-    const tiles = tilesRef.current
+    const seq = sequenceManagerRef.current
+    if (!seq) return
 
-    // For any tile whose video was deleted from disk, replace it with the next valid video
+    const { added, removedUrls } = seq.updateVideos(videos)
+    const tiles = tilesRef.current
+    const currentOffset = trackOffsetRef.current
+    const visibleWidth = marqueeRectRef.current.width
+
+    // 1. If any tile was displaying a removed video, replace it immediately with a valid video
     // without changing any tile's x coordinate or DOM transform (no moving other visible tiles).
-    tiles.forEach((tile) => {
-      const isVideoStillValid = videos.some((v) => v.url === tile.videoUrl)
-      if (!isVideoStillValid) {
-        const nextVideo = videos[playlistIndexRef.current % videos.length]
-        playlistIndexRef.current++
-        tile.videoUrl = nextVideo.url
-        tile.videoFileName = nextVideo.fileName
-        if (tile.videoEl) {
-          tile.videoEl.src = nextVideo.url
-          tile.videoEl.load()
-          if (tile.isPlaying) {
-            const playPromise = tile.videoEl.play()
-            if (playPromise && typeof playPromise.catch === 'function') {
-              playPromise.catch(() => {})
+    if (removedUrls.size > 0) {
+      tiles.forEach((tile) => {
+        if (removedUrls.has(tile.videoUrl)) {
+          const nextVideo = seq.getNextVideo()
+          if (nextVideo) {
+            tile.videoUrl = nextVideo.url
+            tile.videoFileName = nextVideo.fileName
+            if (tile.videoEl) {
+              tile.videoEl.src = nextVideo.url
+              tile.videoEl.load()
+              if (tile.isPlaying) {
+                const playPromise = tile.videoEl.play()
+                if (playPromise && typeof playPromise.catch === 'function') {
+                  playPromise.catch(() => {})
+                }
+              }
             }
           }
         }
+      })
+    }
+
+    // 2. Requirement 1: "Keep the order stable while running (do not reshuffle visible tiles),
+    // and place newly downloaded videos just beyond the right edge."
+    if (added.length > 0 && seq.hasPendingNewVideos()) {
+      // Find buffer tiles currently beyond the right edge (screenX > visibleWidth)
+      const offscreenTiles = tiles
+        .map((t) => ({ tile: t, screenX: t.x + currentOffset }))
+        .filter((item) => item.screenX > visibleWidth)
+        .sort((a, b) => a.screenX - b.screenX)
+
+      for (const { tile } of offscreenTiles) {
+        if (!seq.hasPendingNewVideos()) break
+        const newVid = seq.popPendingNewVideo()
+        if (newVid) {
+          tile.videoUrl = newVid.url
+          tile.videoFileName = newVid.fileName
+          if (tile.videoEl) {
+            tile.videoEl.src = newVid.url
+            tile.videoEl.load()
+          }
+        }
       }
-    })
+    }
   }, [videos])
 
   // Main animation and wrapping loop
@@ -254,11 +300,10 @@ export const MarqueeTrack: React.FC<MarqueeTrackProps> = ({
               tile.domEl.style.transform = `translate3d(${tile.x}px, 0, 0)`
             }
 
-            // Assign next video from playlist
-            const nextVideo = currentVideos[playlistIndexRef.current % currentVideos.length]
-            playlistIndexRef.current++
+            // Assign next video from sequence manager (respects shuffled repetition, source interleaving, anti-repetition)
+            const nextVideo = sequenceManagerRef.current?.getNextVideo() || currentVideos[0]
 
-            if (tile.videoUrl !== nextVideo.url) {
+            if (nextVideo && tile.videoUrl !== nextVideo.url) {
               tile.videoUrl = nextVideo.url
               tile.videoFileName = nextVideo.fileName
               if (tile.videoEl) {
